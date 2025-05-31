@@ -1,0 +1,3 @@
+# Gallery Installation Guide
+
+Coming soon...

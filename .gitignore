@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Blender
+*.blend1
+*.blend2
+*.blend[0-9]*
+
+# Verification outputs (keep structure, ignore large files)
+verification_outputs/**/*.mp4
+verification_outputs/**/*.avi
+verification_outputs/**/*.mov
+verification_outputs/**/cache/
+verification_outputs/**/temp/
+
+# Large data files
+*.hdf5
+*.npy
+*.npz
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs (keep error tracking)
+*.log
+!error_logs/*.md
+
+# Temporary files
+temp/
+cache/
+*.tmp
+
+# Sensitive data
+config/secrets.yml
+.env
