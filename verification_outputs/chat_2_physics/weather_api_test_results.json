@@ -1,0 +1,9 @@
+{
+  "tests_passed": 5,
+  "tests_total": 5,
+  "performance_data": {
+    "first_call": 0.38556694984436035,
+    "cached_call": 0.0005788803100585938
+  },
+  "errors": []
+}

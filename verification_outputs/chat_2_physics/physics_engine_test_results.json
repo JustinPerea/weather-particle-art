@@ -1,0 +1,11 @@
+{
+  "tests_passed": 3,
+  "tests_total": 5,
+  "performance_data": {
+    "generation_time": 0.007719993591308594,
+    "max_force": 9.999001502990723,
+    "mean_force": 9.054547309875488,
+    "sample_time_us": 12.952804565429688
+  },
+  "errors": []
+}

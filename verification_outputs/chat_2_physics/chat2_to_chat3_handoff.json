@@ -1,0 +1,32 @@
+{
+  "interface_functions": {
+    "generate_3d_force_field": {
+      "signature": "generate_3d_force_field(weather_data: WeatherObservation, resolution=(64, 32, 16)) -> np.ndarray",
+      "returns": "np.array shape (64, 32, 16, 3) with force vectors",
+      "performance": "7.7ms",
+      "verified": true
+    },
+    "sample_force_at_position": {
+      "signature": "sample_force_at_position(force_field: np.ndarray, position: np.ndarray) -> np.ndarray",
+      "returns": "np.array [fx, fy, fz] force vector",
+      "performance": "12.95\u03bcs",
+      "verified": true
+    }
+  },
+  "physics_parameters": {
+    "box_size": [
+      2.0,
+      2.0,
+      1.0
+    ],
+    "max_force_magnitude": 10.0,
+    "smoothing_radius": 0.1
+  },
+  "weather_mapping": {
+    "temperature": "spacetime curvature strength (cold=high, hot=low)",
+    "pressure": "gravitational well strength (low=strong, high=weak)",
+    "humidity": "particle cohesion multiplier (0-100% \u2192 1.0-1.5x)",
+    "wind": "directional flow fields with turbulence",
+    "uv_index": "quantum field coupling strength (0-11 \u2192 0-1)"
+  }
+}

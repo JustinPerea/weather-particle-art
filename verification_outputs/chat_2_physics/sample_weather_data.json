@@ -1,0 +1,38 @@
+{
+  "calm": {
+    "timestamp": "2025-06-01T12:18:25.300626",
+    "temperature": 22.0,
+    "pressure": 1013.25,
+    "humidity": 50.0,
+    "wind_speed": 2.0,
+    "wind_direction": 180.0,
+    "uv_index": 5.0,
+    "cloud_cover": 20.0,
+    "precipitation": 0.0,
+    "visibility": 10.0
+  },
+  "storm": {
+    "timestamp": "2025-06-01T12:18:25.300626",
+    "temperature": 10.0,
+    "pressure": 985.0,
+    "humidity": 90.0,
+    "wind_speed": 25.0,
+    "wind_direction": 45.0,
+    "uv_index": 1.0,
+    "cloud_cover": 95.0,
+    "precipitation": 15.0,
+    "visibility": 2.0
+  },
+  "heat_wave": {
+    "timestamp": "2025-06-01T12:18:25.300626",
+    "temperature": 38.0,
+    "pressure": 1020.0,
+    "humidity": 20.0,
+    "wind_speed": 0.5,
+    "wind_direction": 270.0,
+    "uv_index": 11.0,
+    "cloud_cover": 0.0,
+    "precipitation": 0.0,
+    "visibility": 15.0
+  }
+}

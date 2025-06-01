@@ -10,11 +10,8 @@ python-dateutil>=2.8.0
 # Performance
 numba>=0.54.0
 
-# Blender integration
-bpy>=3.0.0  # Note: Usually comes with Blender
-
-# GPU support
-torch>=2.0.0
+# GPU support (optional for now)
+# torch>=2.0.0  # Uncomment if you have CUDA
 
 # Configuration
 pyyaml>=6.0
@@ -23,14 +20,9 @@ pyyaml>=6.0
 pytest>=7.0.0
 pytest-cov>=4.0.0
 
-# Documentation
-sphinx>=5.0.0
-sphinx-rtd-theme>=1.2.0
-
-# Monitoring
-psutil>=5.9.0
-
 # Development
 black>=23.0.0
 flake8>=6.0.0
-mypy>=1.0.0
+
+# Monitoring
+psutil>=5.9.0
