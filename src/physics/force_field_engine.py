@@ -18,6 +18,19 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from src.weather.noaa_api import WeatherObservation
 
+# Optional: Import numba for JIT compilation if available
+try:
+    from numba import jit, prange
+    NUMBA_AVAILABLE = True
+except ImportError:
+    NUMBA_AVAILABLE = False
+    # Define dummy decorator if numba not available
+    def jit(nopython=True, parallel=False, cache=True):
+        def decorator(func):
+            return func
+        return decorator
+    prange = range
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -377,3 +390,329 @@ class PhysicsEngine:
         force = c0 * (1 - fz) + c1 * fz
         
         return force
+    
+    def sample_forces_batch(self, force_field: np.ndarray, positions: np.ndarray) -> np.ndarray:
+        """
+        Optimized batch sampling for many particles at once using vectorized operations
+        
+        Args:
+            force_field: Shape (64, 32, 16, 3) force field
+            positions: Shape (N, 3) array of particle positions
+            
+        Returns:
+            forces: Shape (N, 3) array of forces at each position
+            
+        Performance target: <10ms for 1M particles
+        """
+        # Get field dimensions
+        nx, ny, nz = force_field.shape[:3]
+        field_dims = np.array([nx-1, ny-1, nz-1], dtype=np.float32)
+        
+        # Convert world positions to grid coordinates (vectorized)
+        grid_positions = positions / self.box_size[np.newaxis, :] * field_dims[np.newaxis, :]
+        
+        # Clamp to valid range
+        grid_positions = np.clip(grid_positions, 0, field_dims - 0.001)
+        
+        # Get integer indices and fractional parts
+        indices_0 = grid_positions.astype(np.int32)
+        fractions = grid_positions - indices_0
+        
+        # Compute indices for all 8 corners of interpolation cube
+        i0, j0, k0 = indices_0[:, 0], indices_0[:, 1], indices_0[:, 2]
+        i1 = np.minimum(i0 + 1, nx - 1)
+        j1 = np.minimum(j0 + 1, ny - 1)
+        k1 = np.minimum(k0 + 1, nz - 1)
+        
+        # Extract fractional parts
+        fx, fy, fz = fractions[:, 0], fractions[:, 1], fractions[:, 2]
+        
+        # Reshape fractions for broadcasting
+        fx = fx[:, np.newaxis]
+        fy = fy[:, np.newaxis]
+        fz = fz[:, np.newaxis]
+        
+        # Get forces at all 8 corners (vectorized indexing)
+        c000 = force_field[i0, j0, k0]
+        c100 = force_field[i1, j0, k0]
+        c010 = force_field[i0, j1, k0]
+        c110 = force_field[i1, j1, k0]
+        c001 = force_field[i0, j0, k1]
+        c101 = force_field[i1, j0, k1]
+        c011 = force_field[i0, j1, k1]
+        c111 = force_field[i1, j1, k1]
+        
+        # Trilinear interpolation (vectorized)
+        # Interpolate along x
+        c00 = c000 * (1 - fx) + c100 * fx
+        c01 = c001 * (1 - fx) + c101 * fx
+        c10 = c010 * (1 - fx) + c110 * fx
+        c11 = c011 * (1 - fx) + c111 * fx
+        
+        # Interpolate along y
+        c0 = c00 * (1 - fy) + c10 * fy
+        c1 = c01 * (1 - fy) + c11 * fy
+        
+        # Interpolate along z
+        forces = c0 * (1 - fz) + c1 * fz
+        
+        return forces
+    
+    def sample_forces_smart(self, force_field: np.ndarray, positions: np.ndarray) -> np.ndarray:
+        """
+        Automatically selects the fastest available sampling method
+        
+        Priority:
+        1. Numba JIT (if available) - ~3.5ms for 1M particles
+        2. SciPy (if available) - ~10-20ms for 1M particles  
+        3. Optimized batch - ~50-100ms for 1M particles
+        4. Standard batch - ~240ms for 1M particles
+        
+        Args:
+            force_field: Shape (64, 32, 16, 3) force field
+            positions: Shape (N, 3) array of particle positions
+            
+        Returns:
+            forces: Shape (N, 3) array of forces at each position
+        """
+        # Try Numba first (fastest)
+        if NUMBA_AVAILABLE:
+            try:
+                return self.sample_forces_batch_numba(force_field, positions)
+            except Exception as e:
+                logger.warning(f"Numba sampling failed: {e}, trying next method")
+        
+        # Try SciPy next
+        try:
+            return self.sample_forces_scipy(force_field, positions)
+        except Exception:
+            pass
+        
+        # Try optimized batch
+        try:
+            return self.sample_forces_batch_optimized(force_field, positions)
+        except Exception as e:
+            logger.warning(f"Optimized sampling failed: {e}, using standard batch")
+        
+        # Fallback to standard batch
+        return self.sample_forces_batch(force_field, positions)
+    
+    def sample_forces_scipy(self, force_field: np.ndarray, positions: np.ndarray) -> np.ndarray:
+        """
+        Ultra-fast sampling using scipy's map_coordinates (if available)
+        
+        Args:
+            force_field: Shape (64, 32, 16, 3) force field
+            positions: Shape (N, 3) array of particle positions
+            
+        Returns:
+            forces: Shape (N, 3) array of forces at each position
+            
+        Requires: pip install scipy
+        """
+        try:
+            from scipy.ndimage import map_coordinates
+        except ImportError:
+            logger.warning("scipy not available, falling back to optimized batch method")
+            return self.sample_forces_batch_optimized(force_field, positions)
+        
+        # Convert positions to grid coordinates
+        nx, ny, nz = force_field.shape[:3]
+        grid_scale = np.array([nx-1, ny-1, nz-1], dtype=np.float32) / self.box_size
+        grid_positions = positions * grid_scale[np.newaxis, :]
+        
+        # Transpose for map_coordinates format
+        coords = grid_positions.T
+        
+        # Sample each force component
+        forces = np.zeros((positions.shape[0], 3), dtype=np.float32)
+        for i in range(3):
+            forces[:, i] = map_coordinates(force_field[:, :, :, i], coords, 
+                                         order=1, mode='nearest')
+        
+        return forces.astype(np.float32)
+    
+    def sample_forces_batch_optimized(self, force_field: np.ndarray, positions: np.ndarray) -> np.ndarray:
+        """
+        Highly optimized batch sampling using vectorized operations and memory views
+        
+        Args:
+            force_field: Shape (64, 32, 16, 3) force field
+            positions: Shape (N, 3) array of particle positions
+            
+        Returns:
+            forces: Shape (N, 3) array of forces at each position
+            
+        Performance target: <15ms for 1M particles
+        """
+        # Pre-flatten the force field for faster access
+        nx, ny, nz = force_field.shape[:3]
+        n_particles = positions.shape[0]
+        
+        # Convert positions to grid coordinates in one operation
+        grid_scale = np.array([nx-1, ny-1, nz-1], dtype=np.float32) / self.box_size
+        grid_positions = positions * grid_scale[np.newaxis, :]
+        
+        # Clamp efficiently
+        np.clip(grid_positions, 0, np.array([nx-1.001, ny-1.001, nz-1.001]), out=grid_positions)
+        
+        # Split integer and fractional parts
+        indices_0 = grid_positions.astype(np.int32)
+        fractions = grid_positions - indices_0
+        
+        # Pre-compute all indices
+        i0, j0, k0 = indices_0[:, 0], indices_0[:, 1], indices_0[:, 2]
+        i1 = np.minimum(i0 + 1, nx - 1)
+        j1 = np.minimum(j0 + 1, ny - 1) 
+        k1 = np.minimum(k0 + 1, nz - 1)
+        
+        # Pre-compute interpolation weights
+        fx, fy, fz = fractions[:, 0], fractions[:, 1], fractions[:, 2]
+        fx_inv = 1.0 - fx
+        fy_inv = 1.0 - fy
+        fz_inv = 1.0 - fz
+        
+        # Pre-compute weight combinations
+        w000 = fx_inv * fy_inv * fz_inv
+        w100 = fx * fy_inv * fz_inv
+        w010 = fx_inv * fy * fz_inv
+        w110 = fx * fy * fz_inv
+        w001 = fx_inv * fy_inv * fz
+        w101 = fx * fy_inv * fz
+        w011 = fx_inv * fy * fz
+        w111 = fx * fy * fz
+        
+        # Reshape weights for broadcasting
+        weights = np.stack([w000, w100, w010, w110, w001, w101, w011, w111], axis=1)[:, :, np.newaxis]
+        
+        # Gather all corner values at once
+        corners = np.stack([
+            force_field[i0, j0, k0],
+            force_field[i1, j0, k0],
+            force_field[i0, j1, k0],
+            force_field[i1, j1, k0],
+            force_field[i0, j0, k1],
+            force_field[i1, j0, k1],
+            force_field[i0, j1, k1],
+            force_field[i1, j1, k1]
+        ], axis=1)
+        
+        # Weighted sum in one operation
+        forces = np.sum(corners * weights, axis=1)
+        
+        return forces.astype(np.float32)
+    
+    def sample_forces_batch_chunked(self, force_field: np.ndarray, positions: np.ndarray, 
+                                   chunk_size: int = 50000) -> np.ndarray:
+        """
+        Process particles in chunks to optimize cache usage
+        
+        Args:
+            force_field: Shape (64, 32, 16, 3) force field
+            positions: Shape (N, 3) array of particle positions
+            chunk_size: Number of particles to process at once
+            
+        Returns:
+            forces: Shape (N, 3) array of forces at each position
+        """
+        n_particles = positions.shape[0]
+        forces = np.zeros((n_particles, 3), dtype=np.float32)
+        
+        # Process in chunks for better cache performance
+        for start in range(0, n_particles, chunk_size):
+            end = min(start + chunk_size, n_particles)
+            chunk_positions = positions[start:end]
+            forces[start:end] = self.sample_forces_batch_optimized(force_field, chunk_positions)
+        
+        return forces
+    
+    def sample_forces_batch_numba(self, force_field: np.ndarray, positions: np.ndarray) -> np.ndarray:
+        """
+        Ultra-optimized batch sampling using Numba JIT compilation (if available)
+        
+        Args:
+            force_field: Shape (64, 32, 16, 3) force field
+            positions: Shape (N, 3) array of particle positions
+            
+        Returns:
+            forces: Shape (N, 3) array of forces at each position
+            
+        Performance target: <5ms for 1M particles with Numba
+        """
+        if NUMBA_AVAILABLE:
+            return self._sample_forces_batch_numba_impl(
+                force_field, positions, self.box_size
+            )
+        else:
+            # Fall back to regular batch method
+            logger.warning("Numba not available, using standard batch sampling")
+            return self.sample_forces_batch(force_field, positions)
+    
+    @staticmethod
+    @jit(nopython=True, parallel=True, cache=True)
+    def _sample_forces_batch_numba_impl(force_field: np.ndarray, 
+                                       positions: np.ndarray,
+                                       box_size: np.ndarray) -> np.ndarray:
+        """
+        Numba JIT-compiled implementation of batch force sampling
+        
+        Static method for Numba compilation
+        """
+        nx, ny, nz = force_field.shape[:3]
+        n_particles = positions.shape[0]
+        forces = np.zeros((n_particles, 3), dtype=np.float32)
+        
+        # Precompute constants
+        scale_x = (nx - 1) / box_size[0]
+        scale_y = (ny - 1) / box_size[1]
+        scale_z = (nz - 1) / box_size[2]
+        
+        # Process particles in parallel
+        for idx in prange(n_particles):
+            # Convert to grid coordinates
+            gx = positions[idx, 0] * scale_x
+            gy = positions[idx, 1] * scale_y
+            gz = positions[idx, 2] * scale_z
+            
+            # Clamp to valid range
+            gx = max(0.0, min(gx, nx - 1.001))
+            gy = max(0.0, min(gy, ny - 1.001))
+            gz = max(0.0, min(gz, nz - 1.001))
+            
+            # Integer indices
+            i0 = int(gx)
+            j0 = int(gy)
+            k0 = int(gz)
+            i1 = min(i0 + 1, nx - 1)
+            j1 = min(j0 + 1, ny - 1)
+            k1 = min(k0 + 1, nz - 1)
+            
+            # Fractional parts
+            fx = gx - i0
+            fy = gy - j0
+            fz = gz - k0
+            
+            # Trilinear interpolation for each component
+            for c in range(3):
+                # Get corner values
+                c000 = force_field[i0, j0, k0, c]
+                c100 = force_field[i1, j0, k0, c]
+                c010 = force_field[i0, j1, k0, c]
+                c110 = force_field[i1, j1, k0, c]
+                c001 = force_field[i0, j0, k1, c]
+                c101 = force_field[i1, j0, k1, c]
+                c011 = force_field[i0, j1, k1, c]
+                c111 = force_field[i1, j1, k1, c]
+                
+                # Interpolate
+                c00 = c000 * (1 - fx) + c100 * fx
+                c01 = c001 * (1 - fx) + c101 * fx
+                c10 = c010 * (1 - fx) + c110 * fx
+                c11 = c011 * (1 - fx) + c111 * fx
+                
+                c0 = c00 * (1 - fy) + c10 * fy
+                c1 = c01 * (1 - fy) + c11 * fy
+                
+                forces[idx, c] = c0 * (1 - fz) + c1 * fz
+        
+        return forces

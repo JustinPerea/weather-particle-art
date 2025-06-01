@@ -20,11 +20,11 @@ from src.weather.noaa_api import NOAAWeatherAPI, WeatherObservation
 from src.physics.force_field_engine import PhysicsEngine
 
 # Create output directory in GitHub structure
-OUTPUT_DIR = Path("verification_outputs/chat_2_physics")
+OUTPUT_DIR = Path("weather_art_v3/verification_outputs/chat_2_physics")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Also create debug_plots directory
-DEBUG_DIR = Path("debug_plots")
+DEBUG_DIR = Path("weather_art_v3/debug_plots")
 DEBUG_DIR.mkdir(parents=True, exist_ok=True)
 
 def test_physics_engine():
@@ -97,30 +97,49 @@ def test_physics_engine():
         print(f"   ❌ Validity check failed: {e}\n")
         results['errors'].append(f"Validity: {str(e)}")
     
-    # Test 3: Force sampling performance
+    # Test 3: Force sampling performance (both single and batch)
     print("3. Testing force sampling performance...")
     results['tests_total'] += 1
     try:
-        # Test sampling at 1 million random positions
-        positions = np.random.rand(1_000_000, 3) * physics.box_size
+        # Test single particle sampling (legacy)
+        positions = np.random.rand(1000, 3) * physics.box_size
         
         start = time.time()
-        for i in range(1000):  # Sample 1000 positions
+        for i in range(1000):
             force = physics.sample_force_at_position(force_field, positions[i])
-        sample_time = (time.time() - start) / 1000
+        single_time = (time.time() - start) / 1000
         
-        results['performance_data']['sample_time_us'] = sample_time * 1e6
-        print(f"   Sample time: {sample_time*1e6:.2f}μs per sample")
+        results['performance_data']['sample_time_us'] = single_time * 1e6
+        print(f"   Single sample time: {single_time*1e6:.2f}μs per particle")
         
-        # Check performance requirement (<1μs)
-        if sample_time < 1e-6:
+        # Test batch sampling (optimized)
+        test_sizes = [10_000, 100_000, 1_000_000]
+        print("   Batch sampling performance:")
+        
+        for size in test_sizes:
+            positions = np.random.rand(size, 3).astype(np.float32) * physics.box_size
+            
+            # Warm up
+            _ = physics.sample_forces_batch(force_field, positions[:100])
+            
+            # Time batch sampling
+            start = time.time()
+            forces = physics.sample_forces_batch(force_field, positions)
+            batch_time = time.time() - start
+            
+            time_per_particle = batch_time / size * 1e6
+            print(f"     {size:,} particles: {batch_time*1000:.2f}ms total, {time_per_particle:.3f}μs per particle")
+            
+            if size == 1_000_000:
+                results['performance_data']['batch_1M_ms'] = batch_time * 1000
+                results['performance_data']['batch_per_particle_us'] = time_per_particle
+        
+        # Check if we can achieve 60 FPS with 1M particles
+        if batch_time * 1000 < 16.67:  # 16.67ms = 60 FPS
             results['tests_passed'] += 1
-            print("   ✅ Sampling performance excellent (<1μs)\n")
-        elif sample_time < 10e-6:
-            results['tests_passed'] += 1
-            print("   ✅ Sampling performance acceptable (<10μs)\n")
+            print(f"   ✅ Can achieve 60 FPS with 1M particles ({batch_time*1000:.1f}ms < 16.67ms)\n")
         else:
-            print("   ⚠️  Sampling slower than ideal (>10μs)\n")
+            print(f"   ⚠️  Cannot achieve 60 FPS with 1M particles ({batch_time*1000:.1f}ms > 16.67ms)\n")
             
     except Exception as e:
         print(f"   ❌ Sampling test failed: {e}\n")
