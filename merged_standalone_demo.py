@@ -150,11 +150,33 @@ class AnadolMaterialSystem:
         scene = bpy.context.scene
         scene.use_nodes = True
         
-        # Enable bloom in EEVEE
-        scene.eevee.use_bloom = True
-        scene.eevee.bloom_threshold = 1.0
-        scene.eevee.bloom_intensity = 0.5
-        scene.eevee.bloom_radius = 6.0
+        # Note: In Blender 4.0+, bloom is handled differently
+        # We'll use compositor nodes for glow effects
+        
+        # Setup compositor nodes
+        tree = scene.node_tree
+        nodes = tree.nodes
+        nodes.clear()
+        
+        # Render layers
+        render_layers = nodes.new('CompositorNodeRLayers')
+        render_layers.location = (0, 0)
+        
+        # Glare node for bloom/glow effect
+        glare = nodes.new('CompositorNodeGlare')
+        glare.location = (200, 0)
+        glare.glare_type = 'GHOSTS'
+        glare.threshold = 0.8
+        glare.mix = 0.3
+        
+        # Composite output
+        composite = nodes.new('CompositorNodeComposite')
+        composite.location = (400, 0)
+        
+        # Connect nodes
+        links = tree.links
+        links.new(render_layers.outputs['Image'], glare.inputs['Image'])
+        links.new(glare.outputs['Image'], composite.inputs['Image'])
         
         print("   ✅ HDR bloom configured")
 
@@ -249,17 +271,19 @@ class EnhancedParticleRenderer:
         
         # Quality settings
         scene.eevee.taa_samples = 16
-        scene.eevee.use_bloom = True
-        scene.eevee.bloom_threshold = 1.0
-        scene.eevee.bloom_intensity = 0.5
-        scene.eevee.bloom_radius = 6.0
+        # Note: Bloom is handled differently in Blender 4.0
     
     def apply_anadol_material(self, weather_data):
         """Apply weather-responsive material to particles"""
         # Create material
         material = self.material_system.create_particle_material(weather_data)
         
-        # Apply to mesh
+        # Apply to base particle for geometry instances
+        if hasattr(self, 'base_particle'):
+            self.base_particle.data.materials.clear()
+            self.base_particle.data.materials.append(material)
+        
+        # Also apply to mesh (for viewport display)
         if self.obj.data.materials:
             self.obj.data.materials[0] = material
         else:
@@ -268,9 +292,9 @@ class EnhancedParticleRenderer:
         # Setup compositor
         self.material_system.setup_compositor_effects()
         
-        # Make particles render as points
+        # Make particles render as points in viewport
         self.obj.display_type = 'WIRE'
-        self.obj.show_in_front = False  # Let material handle visibility
+        self.obj.show_in_front = False
     
     def update_particles(self, positions, weather_data=None):
         """Update particle positions and materials"""

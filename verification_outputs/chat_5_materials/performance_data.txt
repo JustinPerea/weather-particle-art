@@ -1,0 +1,8 @@
+Material Update Performance Test
+========================================
+Total updates: 1000
+Average: 0.022ms
+Maximum: 0.054ms
+95th percentile: 0.024ms
+Budget: 3.10ms
+Status: PASS
