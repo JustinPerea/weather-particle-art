@@ -1,0 +1,19 @@
+# Platform-Specific Optimization Guide
+
+## Apple Silicon (M1/M2/M3)
+- **Optimal particle count**: 100,000
+- **Optimization strategy**: Vectorized NumPy (no Numba)
+- **Python version**: 3.12+ 
+- **Performance**: 85+ FPS achieved
+
+## x86_64 with NVIDIA GPU
+- **Optimal particle count**: 1,000,000
+- **Optimization strategy**: Numba JIT + CUDA
+- **Python version**: 3.10-3.11 (better Numba support)
+- **Performance**: Target 60 FPS
+
+## Development Recommendations
+1. Start with 100K particles on any platform
+2. Profile before scaling up
+3. Test Numba vs vectorized NumPy on your hardware
+4. Adjust particle count based on performance
